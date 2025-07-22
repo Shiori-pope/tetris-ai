@@ -6,7 +6,7 @@
 
 ## Demo
 
-![Demo Animation](assets/demo.gif)
+![Demo Animation](pictures/demo.gif)
 
 ## 项目架构
 
