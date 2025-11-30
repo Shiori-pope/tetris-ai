@@ -1,117 +1,74 @@
 import numpy as np
-from IPython.display import HTML, DisplayHandle, clear_output, display_html
-
-# Pac-Man glyphs for different cell types
-TILE_SYMBOLS = {
-    0: "  ",   # empty path
-    1: "🟦",  # wall
-    2: "• ",  # bean
-    3: "  ",  # reserved spawn tiles fall back to empty
-    4: "  ",
-}
-PLAYER_SYMBOL = "😋"
-GHOST_SYMBOL = "👻"
-
-
-def _normalize_state(target):
-    """
-    将输入统一成字典格式，便于渲染：
-    - PacmanGame 实例 -> 调用 state()
-    - 包含 map 的 dict -> 直接返回
-    - 其他 (如 ndarray) -> 仅渲染地图
-    """
-    if hasattr(target, "state") and callable(target.state):
-        return target.state()
-    if isinstance(target, dict) and "map" in target:
-        return target
-
-    board = np.array(target)
-    return {
-        "map": board,
-        "player_pos": None,
-        "ghost_pos": None,
-        "score": 0,
-        "total_beans": int(np.count_nonzero(board == 2)),
-    }
-
-
-def board_to_html(map_matrix, player_pos=None, ghost_pos=None):
-    board = np.array(map_matrix)
-    player = tuple(player_pos) if player_pos is not None else None
-    ghost = tuple(ghost_pos) if ghost_pos is not None else None
-
+import time
+from IPython.display import display, HTML, DisplayHandle, clear_output,display_html
+# 🟥	🟧	🟨	🟩	🟦	🟪	🟫	⬜
+def board_to_html(board):
+    # 用 <pre> 保持等宽字体和行结构
     lines = []
-    for r in range(board.shape[0]):
-        row_symbols = []
-        for c in range(board.shape[1]):
-            if player is not None and (r, c) == player:
-                row_symbols.append(PLAYER_SYMBOL)
-            elif ghost is not None and (r, c) == ghost:
-                row_symbols.append(GHOST_SYMBOL)
-            else:
-                cell_value = int(board[r, c])
-                row_symbols.append(TILE_SYMBOLS.get(cell_value, TILE_SYMBOLS[0]))
-        lines.append("".join(row_symbols))
+    for row in board:
+        lines.append(''.join('🟩' if cell else '⬛' for cell in row))
+    html = "<pre style='line-height:1.5em;font-size:12px'>" + "\n".join(lines) + "</pre>"
+    return HTML(html)
 
-    pre = (
-        "<pre style=\"line-height:1.3em;font-size:16px;"
-        "font-family:'Segoe UI Emoji',monospace;margin:0\">"
-        + "\n".join(lines)
-        + "</pre>"
-    )
-    return HTML(pre)
+def show_board(board):
+    return display_html(board_to_html(board))
+# 在 Jupyter 中用 ASCII 实时渲染含当前下落方块的 TetrisGame.board
 
-
-def show_board(game_or_state):
+def render_ascii(handle, game, appendText=None):
     """
-    直接显示当前局面，可传入：
-    - PacmanGame 实例
-    - PacmanGame.state() 的字典
-    - 仅包含地图的数组
+    渲染俄罗斯方块游戏状态，包括积分信息
+    参数:
+    handle: DisplayHandle对象，用于显示内容
+    game: TetrisGame实例
+    appendText: 可选的附加文本信息
     """
-    state = _normalize_state(game_or_state)
-    html = board_to_html(state["map"], state.get("player_pos"), state.get("ghost_pos"))
-    return display_html(html)
-
-
-def render_ascii(handle: DisplayHandle, game, append_text=None):
-    """
-    在 Jupyter 中即时渲染吃豆人局面，同时展示基本信息。
-    handle: DisplayHandle，用于更新已有输出
-    game: PacmanGame 实例或兼容的 state 字典
-    append_text: 附加说明字符串
-    """
+    # 合并已固定方块和当前下落方块
     clear_output(wait=True)
-    state = _normalize_state(game)
-
-    info = f"得分: {state.get('score', 0)} | 剩余豆子: {state.get('total_beans', '?')}"
-    if append_text:
-        info += f" | {append_text}"
-
-    board_html = board_to_html(
-        state["map"],
-        state.get("player_pos"),
-        state.get("ghost_pos"),
-    ).data
-
-    legend = (
-        f"图例: {PLAYER_SYMBOL} = Pacman, {GHOST_SYMBOL} = Ghost, "
-        "🟦 = Wall, • = Bean"
-    )
-
+    display = game.board.copy().astype(int)
+    shape = game.current
+    r0, c0 = game.current_pos
+    
+    # 添加当前方块到显示矩阵
+    for i in range(shape.shape[0]):
+        for j in range(shape.shape[1]):
+            if shape.body[i, j]:
+                rr, cc = r0 + i, c0 + j
+                if 0 <= rr < game.rows and 0 <= cc < game.cols:
+                    display[rr, cc] = 1
+    
+    # 生成游戏信息面板
+    info_text = f"分数: {game.score} | 等级: {game.level}"
+    if appendText:
+        info_text += f" | {appendText}"
+    
+    # 添加下一个方块的预览 (如果需要)
+    next_piece_preview = ""
+    if hasattr(game, 'next') and game.next is not None:
+        next_shape = game.next
+        next_piece_preview = "<br>下一个方块:<br>"
+        for i in range(next_shape.shape[0]):
+            row = []
+            for j in range(next_shape.shape[1]):
+                if next_shape.body[i, j]:
+                    row.append("🟩")
+                else:
+                    row.append("⬛")
+            next_piece_preview += "".join(row) + "<br>"
+    
+    # 生成HTML
+    game_board_html = board_to_html(display).data
+    
+    # 创建结合游戏板和信息区域的HTML
     full_html = f"""
-    <div style="font-family:'Segoe UI', monospace;">
-        <div style="margin-bottom:8px;font-size:14px;font-weight:bold;">
-            {info}
+    <div style="font-family: monospace;">
+        <div style="margin-bottom: 10px; font-size: 14px; font-weight: bold;">
+            {info_text}
         </div>
-        {board_html}
-        <div style="margin-top:6px;font-size:12px;color:#666;">
-            {legend}
+        {game_board_html}
+        <div style="margin-top: 5px; font-size: 12px;">
+            {next_piece_preview}
         </div>
     </div>
     """
-
-    if isinstance(handle, DisplayHandle):
-        handle.display(HTML(full_html))
-    else:
-        display_html(HTML(full_html))
+    
+    handle.display(HTML(full_html))
